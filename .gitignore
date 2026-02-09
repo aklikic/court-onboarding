@@ -30,3 +30,8 @@ akka-context/
 .git-bak
 
 .github-bak
+
+docs/
+
+AGENTS.md
+CLAUDE.md
