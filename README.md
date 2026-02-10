@@ -172,9 +172,9 @@ graph LR
     CA -->|returns| AuditResult
     DA -->|returns| DraftDocument
     SRA -->|returns| SecretariatAct
-    QV -->|@Consume.FromWorkflow| Workflow
-    KV -->|@Consume.FromWorkflow| Workflow
-    AV -->|@Consume.FromWorkflow| Workflow
+    QV -->|"@Consume.FromWorkflow"| Workflow
+    KV -->|"@Consume.FromWorkflow"| Workflow
+    AV -->|"@Consume.FromWorkflow"| Workflow
     EP -->|queries| QV
     EP -->|queries| KV
     EP -->|queries| AV
