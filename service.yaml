@@ -1,0 +1,12 @@
+name: court-onboarding
+service:
+  env:
+    - name: GOOGLE_AI_GEMINI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: app-secret
+          key: GOOGLE_AI_GEMINI_API_KEY
+  image:  aklikic/court-onboarding:1.0-SNAPSHOT-20260213165326
+  resources:
+    runtime:
+      mode: embedded

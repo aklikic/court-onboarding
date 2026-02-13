@@ -1,0 +1,19 @@
+package com.example.domain;
+
+public enum CaseStatus {
+    RECEIVED,
+    SCREENING,
+    SCREENING_COMPLETE,
+    SECRETARIAT_PROCESSING,
+    SECRETARIAT_COMPLETE,
+    AUDITING,
+    AUDIT_PASSED,
+    AUDIT_FAILED,
+    DRAFTING,
+    DRAFT_READY,
+    AWAITING_HUMAN_APPROVAL,
+    APPROVED,
+    REJECTED,
+    PUBLISHED,
+    FAILED
+}

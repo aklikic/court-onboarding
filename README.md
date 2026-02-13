@@ -60,11 +60,11 @@ graph TB
     CaseWorkflow -->|step 3| AuditAgent
     CaseWorkflow -->|step 4| DraftingAgent
 
-    ScreeningAgent -.->|"MCP: search_case"| CourtSys
-    AuditAgent -.->|"MCP: search_case"| CourtSys
-    AuditAgent -.->|"MCP: search_jurisprudence"| Juris
-    DraftingAgent -.->|"MCP: search_jurisprudence"| Juris
-    SecretariatAgent -.->|"MCP: search_case, update_case"| CourtSys
+    ScreeningAgent -.->|"@FunctionTool: searchCase"| CourtSys
+    AuditAgent -.->|"@FunctionTool: searchCase"| CourtSys
+    AuditAgent -.->|"@FunctionTool: searchJurisprudence"| Juris
+    DraftingAgent -.->|"@FunctionTool: searchJurisprudence"| Juris
+    SecretariatAgent -.->|"@FunctionTool: searchCase"| CourtSys
 
     CaseWorkflow -->|state changes| QueueView
     CaseWorkflow -->|state changes| KPIView
@@ -73,12 +73,12 @@ graph TB
     ApprovalConsumer -->|"push when AWAITING_APPROVAL"| Topic
     Topic -->|notification| Magistrate
 
-    Magistrate -->|"1. GET /cases?status=AWAITING_APPROVAL<br/>(inbox)"| HTTP
+    Magistrate -->|"1. GET /cases/queue<br/>(SSE streaming inbox)"| HTTP
     HTTP -->|query| QueueView
     HTTP -->|query| KPIView
     HTTP -->|query| AuditView
     Magistrate -->|"2. GET /cases/{id}<br/>(review draft + evidence)"| HTTP
-    Magistrate -->|"3. POST /cases/{id}/approve<br/>or /reject"| HTTP
+    Magistrate -->|"3. POST /cases/{id}/approve<br/>or /reject or /continue or /fail"| HTTP
     HTTP -->|commands| CaseWorkflow
     MCP -->|query| QueueView
 
@@ -94,7 +94,7 @@ graph TB
 
 The `CaseProcessingWorkflow` is the single source of truth. Its `CaseState` holds all verifications, RAG evidence, agent results, and human approvals. Views subscribe directly to Workflow state changes.
 
-When the Workflow reaches `AWAITING_HUMAN_APPROVAL`, it pauses and waits for an external command. The `CasesByQueueView` acts as the Magistrate's inbox (queryable by status). The Magistrate reviews case details and approves/rejects via `CaseEndpoint`, which sends a command back to the Workflow.
+When the Workflow reaches `AWAITING_HUMAN_APPROVAL`, it pauses and waits for an external command. The `CasesByQueueView` streams real-time updates via SSE to the dashboard UI, acting as the Magistrate's inbox. The Magistrate reviews case details and approves/rejects via `CaseEndpoint`, which sends a command back to the Workflow. Audit failures and step failures also pause for human intervention.
 
 ```mermaid
 stateDiagram-v2
@@ -110,7 +110,16 @@ stateDiagram-v2
     AUDITING --> AUDIT_PASSED: ConsistencyAuditAgent<br/>no issues found
     AUDITING --> AUDIT_FAILED: ConsistencyAuditAgent<br/>inconsistencies detected
 
-    AUDIT_FAILED --> SECRETARIAT_PROCESSING: compensate & fix
+    state "AUDIT_FAILED" as AUDIT_FAILED
+    note right of AUDIT_FAILED
+        Workflow pauses for human review.
+        Magistrate can:
+        - POST /cases/{id}/continue (proceed to drafting)
+        - POST /cases/{id}/fail (mark as failed)
+    end note
+
+    AUDIT_FAILED --> DRAFTING: continue command
+    AUDIT_FAILED --> FAILED: fail command
 
     AUDIT_PASSED --> DRAFTING: startDraftingStep
     DRAFTING --> DRAFT_READY: DraftingSupportAgent<br/>creates draft via RAG
@@ -119,9 +128,9 @@ stateDiagram-v2
 
     state "AWAITING_HUMAN_APPROVAL" as AWAITING_HUMAN_APPROVAL
     note right of AWAITING_HUMAN_APPROVAL
-        Workflow waits for external command.
+        Workflow pauses for human decision.
         Magistrate uses CaseEndpoint:
-        1. GET /cases?status=AWAITING_APPROVAL (inbox via View)
+        1. GET /cases/queue (SSE streaming inbox)
         2. GET /cases/{id} (review draft + RAG citations)
         3. POST /cases/{id}/approve or /reject
     end note
@@ -133,6 +142,14 @@ stateDiagram-v2
 
     APPROVED --> PUBLISHED: publishStep<br/>push to Court System
     PUBLISHED --> [*]
+
+    state "FAILED" as FAILED
+    note right of FAILED
+        Step failed after retries or
+        manually failed by magistrate.
+        POST /cases/{id}/resume to retry.
+    end note
+    FAILED --> RECEIVED: resume command
 ```
 
 ### Akka Component Detail Map
@@ -143,8 +160,8 @@ graph LR
         CaseState["CaseState<br/>(workflow state record)"]
         ScreeningResult["ScreeningResult"]
         AuditResult["AuditResult"]
-        DraftDocument["DraftDocument"]
-        SecretariatAct["SecretariatAct"]
+        DraftResult["DraftResult"]
+        SecretariatResult["SecretariatResult"]
     end
 
     subgraph "application package"
@@ -170,8 +187,8 @@ graph LR
     Workflow -->|calls| DA
     SA -->|returns| ScreeningResult
     CA -->|returns| AuditResult
-    DA -->|returns| DraftDocument
-    SRA -->|returns| SecretariatAct
+    DA -->|returns| DraftResult
+    SRA -->|returns| SecretariatResult
     QV -->|"@Consume.FromWorkflow"| Workflow
     KV -->|"@Consume.FromWorkflow"| Workflow
     AV -->|"@Consume.FromWorkflow"| Workflow
@@ -181,9 +198,9 @@ graph LR
     EP -->|commands| Workflow
 ```
 
-### Agent Tool Integration (MCP)
+### Agent Tool Integration (@FunctionTool)
 
-Each agent connects to external systems exclusively via MCP tools. For the POC, MCP tools are implemented as **stubs** returning hardcoded data. The RAG pipeline behind the Jurisprudence Repository is out of scope.
+Each agent connects to external systems via `@FunctionTool`-annotated service interfaces injected as tools. For the POC, tools are implemented as **stubs** returning hardcoded data. The RAG pipeline behind the Jurisprudence Repository is out of scope.
 
 ```mermaid
 graph TB
@@ -194,9 +211,9 @@ graph TB
         DA["DraftingSupportAgent"]
     end
 
-    subgraph "MCP Tools (Stubs for POC)"
-        CourtSys["Court System<br/>(Case Database)"]
-        Juris["Jurisprudence<br/>Repository"]
+    subgraph "Function Tools (Stubs for POC)"
+        CourtSys["CourtSystemService<br/>(Case Database)"]
+        Juris["JurisprudenceService<br/>(Legal Repository)"]
     end
 
     subgraph "RAG Pipeline (Out of Scope)"
@@ -205,11 +222,11 @@ graph TB
         Norms["Internal Regulations"]
     end
 
-    SA -->|"MCP: search_case"| CourtSys
-    CA -->|"MCP: search_case"| CourtSys
-    CA -->|"MCP: search_jurisprudence"| Juris
-    SRA -->|"MCP: search_case, update_case"| CourtSys
-    DA -->|"MCP: search_jurisprudence"| Juris
+    SA -->|"searchCase"| CourtSys
+    CA -->|"searchCase"| CourtSys
+    CA -->|"searchJurisprudence"| Juris
+    SRA -->|"searchCase"| CourtSys
+    DA -->|"searchJurisprudence"| Juris
 
     Juris -.-> Laws
     Juris -.-> JurisDB
@@ -252,8 +269,12 @@ public enum ProcedureType { ORDINARY, SUMMARY, FAST_TRACK }
 public enum Urgency { LOW, MEDIUM, HIGH, URGENT }
 
 public enum CaseStatus {
-    RECEIVED, SCREENING, SECRETARIAT_PROCESSING, AUDITING,
-    DRAFTING, AWAITING_HUMAN_APPROVAL, APPROVED, REJECTED, PUBLISHED
+    RECEIVED, SCREENING, SCREENING_COMPLETE,
+    SECRETARIAT_PROCESSING, SECRETARIAT_COMPLETE,
+    AUDITING, AUDIT_PASSED, AUDIT_FAILED,
+    DRAFTING, DRAFT_READY,
+    AWAITING_HUMAN_APPROVAL, APPROVED, REJECTED,
+    PUBLISHED, FAILED
 }
 ```
 
@@ -292,7 +313,8 @@ public record CaseState(
     SecretariatResult secretariat,   // null until secretariat completes
     AuditResult audit,               // null until audit completes
     DraftResult draft,               // null until drafting completes
-    String rejectionReason           // null unless rejected by magistrate
+    String rejectionReason,          // null unless rejected by magistrate
+    String failureMessage            // null unless workflow step failed
 ) {}
 ```
 
@@ -301,12 +323,14 @@ public record CaseState(
 Each View subscribes to `CaseProcessingWorkflow` state changes and projects a subset of `CaseState`.
 
 ```java
-// CasesByQueueView - Magistrate's inbox
+// CasesByQueueView - Magistrate's inbox (streamed via SSE)
 public record CaseQueueEntry(
     String caseNumber,
-    CaseStatus status,
-    ProcedureType procedureType,     // from screening
-    Urgency urgency                  // from screening
+    String status,
+    String procedureType,            // from screening
+    String urgency,                  // from screening
+    String failureMessage,           // from workflow failure
+    String auditIssues               // from audit (joined with ";")
 ) {}
 
 // KPIDashboardView - Operational metrics
@@ -332,24 +356,23 @@ public record AuditTrailEntry(
 
 ## External Tools
 
-Tools available to agents via MCP. **For the POC, all tools are stubs returning hardcoded data.** The RAG pipeline behind the Jurisprudence Repository is out of scope -- it lives behind the external service. Personal data masking is handled by Akka guardrails, not as an external tool.
+Tools available to agents via `@FunctionTool`-annotated service interfaces. **For the POC, all tools are stubs returning hardcoded data.** The RAG pipeline behind the Jurisprudence Repository is out of scope -- it lives behind the external service. Personal data masking is handled by Akka guardrails, not as an external tool.
 
 ```java
 // Contract for court system integration
-public interface CourtSystemTools {
+public interface CourtSystemService {
 
-    // Retrieves case documents and metadata from court system
+    @FunctionTool(description = "Retrieves case documents and metadata from the court system")
     CaseDocuments searchCase(String caseNumber);
 
-    // Publishes administrative acts (subpoenas, deadlines) back to court system
+    @FunctionTool(description = "Publishes administrative acts back to the court system")
     void updateCase(String caseNumber, List<String> acts);
 }
 
 // Contract for legal knowledge base integration
-public interface JurisprudenceTools {
+public interface JurisprudenceService {
 
-    // Searches official legal databases (laws, jurisprudence, internal norms)
-    // Returns grounded results with citations
+    @FunctionTool(description = "Searches official legal databases")
     List<CitedSource> searchJurisprudence(String query);
 }
 
@@ -367,11 +390,11 @@ public record CitedSource(
 
 ### Tool access per agent
 
-| Agent | CourtSystemTools | JurisprudenceTools |
+| Agent | CourtSystemService | JurisprudenceService |
 |---|---|---|
 | `ScreeningAgent` | `searchCase` | |
 | `ConsistencyAuditAgent` | `searchCase` | `searchJurisprudence` |
-| `SecretariatRoutineAgent` | `searchCase`, `updateCase` | |
+| `SecretariatRoutineAgent` | `searchCase` | |
 | `DraftingSupportAgent` | | `searchJurisprudence` |
 
 ### Agent prompts
@@ -379,7 +402,7 @@ public record CitedSource(
 ```
 ScreeningAgent:
   "You are a court screening clerk. Given a case number, use the
-   searchCase MCP tool to retrieve the case data. Then classify:
+   searchCase tool to retrieve the case data. Then classify:
    1. The procedure type (ORDINARY, SUMMARY, or FAST_TRACK)
    2. The urgency level (LOW, MEDIUM, HIGH, or URGENT)
    3. Whether all required documents are present
@@ -388,7 +411,7 @@ ScreeningAgent:
 
 ConsistencyAuditAgent:
   "You are a court auditor. Given a case number, use the searchCase
-   MCP tool to retrieve case data and the searchJurisprudence MCP tool to
+   tool to retrieve case data and the searchJurisprudence tool to
    validate against legal norms. Verify formal consistency:
    - Dates are valid and not contradictory
    - Claimed values match supporting documents
@@ -397,14 +420,14 @@ ConsistencyAuditAgent:
 
 SecretariatRoutineAgent:
   "You are a court secretariat assistant. Given a case number, use
-   the searchCase MCP tool to retrieve case data. Generate the required
-   administrative acts (subpoenas, deadline notifications, file joining orders).
-   Then use the updateCase MCP tool to publish the acts to the court system.
+   the searchCase tool to retrieve case data. Based on the case data,
+   determine which administrative acts are needed (subpoenas, deadline
+   notifications, file joining orders).
    Respond with a SecretariatResult."
 
 DraftingSupportAgent:
   "You are a court drafting assistant. Given a case and its audit
-   results, use the searchJurisprudence MCP tool to find relevant
+   results, use the searchJurisprudence tool to find relevant
    precedents. Draft a decision suggestion based ONLY on retrieved
    jurisprudence. Every statement must cite its source. If insufficient
    legal basis exists, explicitly state that rather than inventing content.
@@ -420,10 +443,197 @@ DraftingSupportAgent:
 | `ConsistencyAuditAgent` | Agent | Detects inconsistencies before magistrate review |
 | `SecretariatRoutineAgent` | Agent | Automates subpoenas, deadline checks, file joining |
 | `DraftingSupportAgent` | Agent | Generates drafts grounded in jurisprudence via RAG |
-| `CasesByQueueView` | View | Queue management by priority and status (subscribes to Workflow) |
+| `CasesByQueueView` | View | Queue management with SSE streaming updates (subscribes to Workflow) |
 | `KPIDashboardView` | View | Operational metrics: triage time, rework rate, etc. (subscribes to Workflow) |
 | `AuditTrailView` | View | Governance and compliance dashboard (subscribes to Workflow) |
-| `CaseEndpoint` | HTTP Endpoint | REST API for human interaction and approvals |
-| `CourtToolsMcpEndpoint` | MCP Endpoint | MCP tools for Word/external integrations |
+| `CaseEndpoint` | HTTP Endpoint | REST API for human interaction, approvals, and SSE streaming queue |
+| `DashboardEndpoint` | HTTP Endpoint | Serves the single-page dashboard UI at `/` |
+| `CourtToolsMcpEndpoint` | MCP Endpoint | Tools for Word/external integrations |
 | `CourtEventConsumer` | Consumer | Ingests events from court system |
 | `ApprovalNotificationConsumer` | Consumer | Subscribes to Workflow, pushes to message broker when case reaches AWAITING_APPROVAL |
+
+## API Endpoints (curl examples)
+
+### Start a new case
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/start \
+  -H 'Content-Type: application/json' \
+  -d '{"caseNumber": "CASE-2024-001"}'
+```
+
+### Get case state
+
+```shell
+curl http://localhost:9000/cases/case-001
+```
+
+### Approve a case (when AWAITING_HUMAN_APPROVAL)
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/approve
+```
+
+### Reject a case (when AWAITING_HUMAN_APPROVAL)
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/reject \
+  -H 'Content-Type: application/json' \
+  -d '{"reason": "Insufficient evidence in supporting documents"}'
+```
+
+### Resume a failed case
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/resume
+```
+
+### Continue from audit failure (when AUDIT_FAILED)
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/continue
+```
+
+### Fail a case
+
+```shell
+curl -X POST http://localhost:9000/cases/case-001/fail \
+  -H 'Content-Type: application/json' \
+  -d '{"reason": "Audit issues unresolvable"}'
+```
+
+### Stream live workflow updates (SSE)
+
+```shell
+curl -N http://localhost:9000/cases/case-001/updates
+```
+
+### Stream all cases queue (SSE with real-time updates)
+
+```shell
+curl -N http://localhost:9000/cases/queue
+```
+
+### Get cases by status
+
+```shell
+curl http://localhost:9000/cases/queue/AWAITING_HUMAN_APPROVAL
+```
+
+### Get full audit trail
+
+```shell
+curl http://localhost:9000/cases/audit-trail
+```
+
+### Get audit trail for a specific case
+
+```shell
+curl http://localhost:9000/cases/audit-trail/CASE-2024-001
+```
+
+### Get KPI dashboard
+
+```shell
+curl http://localhost:9000/cases/kpi
+```
+
+### Get cases with incomplete documents
+
+```shell
+curl http://localhost:9000/cases/kpi/incomplete-documents
+```
+
+### Get cases with failed audits
+
+```shell
+curl http://localhost:9000/cases/kpi/failed-audits
+```
+
+## Build, Run & Deploy
+
+### Prerequisites
+
+- Java 21+
+- Maven 3.9+
+- Docker
+- [Akka CLI](https://doc.akka.io/reference/cli/index.html) (`akka`)
+
+### Run locally
+
+```shell
+GOOGLE_AI_GEMINI_API_KEY=your-key-here mvn compile exec:java
+```
+
+The dashboard UI is available at `http://localhost:9000/`.
+
+### Run tests
+
+```shell
+mvn verify
+```
+
+### Build Docker image
+
+```shell
+mvn clean install -DskipTests
+```
+
+This builds the Docker image `court-onboarding:1.0-SNAPSHOT` via the Akka SDK parent pom.
+
+### Tag and push
+
+Replace `your-registry` with your Docker registry (e.g. Docker Hub username or GCR/ECR path):
+
+```shell
+export VERSION=$(date +%Y%m%d%H%M%S)
+docker tag court-onboarding:1.0-SNAPSHOT your-registry/court-onboarding:1.0-SNAPSHOT-$VERSION
+docker push your-registry/court-onboarding:1.0-SNAPSHOT-$VERSION
+```
+
+### Deploy to Akka
+
+#### 1. Create the secret for the Gemini API key
+
+```shell
+akka secrets create app-secret \
+  --secret-key-value GOOGLE_AI_GEMINI_API_KEY=your-key-here
+```
+
+#### 2. Update `service.yaml` image reference
+
+Edit `service.yaml` to point to your pushed image:
+
+```yaml
+name: court-onboarding
+service:
+  env:
+    - name: GOOGLE_AI_GEMINI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: app-secret
+          key: GOOGLE_AI_GEMINI_API_KEY
+  image: your-registry/court-onboarding:1.0-SNAPSHOT-20260213165326
+  resources:
+    runtime:
+      mode: embedded
+```
+
+#### 3. Deploy the service
+
+```shell
+akka service deploy court-onboarding service.yaml
+```
+
+#### 4. Check status
+
+```shell
+akka service list
+akka service logs court-onboarding
+```
+
+#### 5. Expose publicly (optional)
+
+```shell
+akka service expose court-onboarding --enable-cors
+```

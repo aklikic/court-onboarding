@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Court Onboarding Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+    .header { background: #1a2744; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .badge { background: #3b82f6; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 2px solid #e2e8f0; }
+    .tab { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 14px; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab.active { color: #1a2744; border-bottom-color: #3b82f6; font-weight: 600; }
+    .tab:hover { color: #1a2744; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .stat-card .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .stat-card .value.blue { color: #3b82f6; }
+    .stat-card .value.green { color: #10b981; }
+    .stat-card .value.red { color: #ef4444; }
+    .stat-card .value.amber { color: #f59e0b; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    th { background: #f8fafc; text-align: left; padding: 12px 16px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+    tr:hover { background: #f8fafc; }
+    .badge-status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-AWAITING_HUMAN_APPROVAL { background: #fef3c7; color: #92400e; }
+    .badge-PUBLISHED { background: #d1fae5; color: #065f46; }
+    .badge-FAILED { background: #fee2e2; color: #991b1b; }
+    .badge-SCREENING, .badge-SCREENING_COMPLETE { background: #dbeafe; color: #1e40af; }
+    .badge-SECRETARIAT_PROCESSING, .badge-SECRETARIAT_COMPLETE { background: #e0e7ff; color: #3730a3; }
+    .badge-AUDITING, .badge-AUDIT_PASSED { background: #ede9fe; color: #5b21b6; }
+    .badge-AUDIT_FAILED { background: #fee2e2; color: #991b1b; }
+    .badge-DRAFTING, .badge-DRAFT_READY { background: #fce7f3; color: #9d174d; }
+    .badge-APPROVED { background: #d1fae5; color: #065f46; }
+    .badge-RECEIVED { background: #f1f5f9; color: #475569; }
+    .badge-URGENT { background: #fee2e2; color: #991b1b; }
+    .badge-HIGH { background: #fef3c7; color: #92400e; }
+    .badge-MEDIUM { background: #dbeafe; color: #1e40af; }
+    .badge-LOW { background: #d1fae5; color: #065f46; }
+    .check { color: #10b981; } .cross { color: #ef4444; }
+    .actions { display: flex; gap: 8px; }
+    .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .btn-approve { background: #10b981; color: #fff; }
+    .btn-reject { background: #ef4444; color: #fff; }
+    .btn-approve:hover { background: #059669; }
+    .btn-reject:hover { background: #dc2626; }
+    .btn-start { background: #3b82f6; color: #fff; padding: 8px 20px; font-size: 14px; }
+    .btn-start:hover { background: #2563eb; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .toolbar h2 { font-size: 18px; }
+    input[type="text"] { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; width: 250px; }
+    .events-log { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 16px; font-family: 'Fira Code', monospace; font-size: 13px; max-height: 400px; overflow-y: auto; }
+    .events-log .event { padding: 4px 0; border-bottom: 1px solid #334155; }
+    .events-log .event:last-child { border-bottom: none; }
+    .events-log .time { color: #94a3b8; margin-right: 8px; }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; }
+    dialog { border: none; border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 100%; }
+    dialog::backdrop { background: rgba(0,0,0,0.4); }
+    dialog h3 { margin-bottom: 16px; }
+    dialog textarea { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; min-height: 80px; font-size: 14px; margin-bottom: 12px; }
+    dialog .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-cancel { background: #e2e8f0; color: #475569; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Court Onboarding</h1>
+    <span class="badge">AI-Assisted</span>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" data-tab="inbox">Cases</button>
+      <button class="tab" data-tab="kpi">KPI Dashboard</button>
+      <button class="tab" data-tab="audit-trail">Audit Trail</button>
+    </div>
+
+    <!-- Inbox -->
+    <div id="inbox" class="panel active">
+      <div class="toolbar">
+        <h2>Cases Requiring Attention</h2>
+        <button class="btn btn-start" onclick="showStartDialog()">Start New Case</button>
+      </div>
+      <div id="inbox-approval"></div>
+      <div id="inbox-audit-failed" style="margin-top:16px;"></div>
+      <div id="inbox-failed" style="margin-top:16px;"></div>
+      <div style="margin-top:24px;">
+        <h3 style="margin-bottom:8px;">All Cases</h3>
+        <table>
+          <thead><tr><th>Case Number</th><th>Status</th><th>Procedure</th><th>Urgency</th></tr></thead>
+          <tbody id="all-cases-body"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- KPI -->
+    <div id="kpi" class="panel">
+      <div class="stats">
+        <div class="stat-card"><div class="label">Total Cases</div><div class="value blue" id="kpi-total">-</div></div>
+        <div class="stat-card"><div class="label">Docs Complete</div><div class="value green" id="kpi-docs-complete">-</div></div>
+        <div class="stat-card"><div class="label">Docs Incomplete</div><div class="value amber" id="kpi-docs-incomplete">-</div></div>
+        <div class="stat-card"><div class="label">Audit Failures</div><div class="value red" id="kpi-audit-failures">-</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Case Number</th><th>Status</th><th>Docs Complete</th><th>Audit OK</th><th>Issues</th></tr></thead>
+        <tbody id="kpi-body"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Audit Trail -->
+    <div id="audit-trail" class="panel">
+      <div class="toolbar"><h2>Audit Trail</h2></div>
+      <table>
+        <thead><tr><th>Case Number</th><th>Status</th><th>Screening</th><th>Secretariat</th><th>Audit</th><th>Draft</th><th>Citations</th></tr></thead>
+        <tbody id="audit-body"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Start Case Dialog -->
+  <dialog id="start-dialog">
+    <h3>Start New Case</h3>
+    <label style="font-size:13px;color:#64748b;">Workflow ID</label>
+    <input type="text" id="new-workflow-id" style="width:100%;margin-bottom:12px;" placeholder="e.g. wf-001">
+    <label style="font-size:13px;color:#64748b;">Case Number</label>
+    <input type="text" id="new-case-number" style="width:100%;margin-bottom:12px;" placeholder="e.g. CASE-2024-001">
+    <div class="dialog-actions">
+      <button class="btn btn-cancel" onclick="document.getElementById('start-dialog').close()">Cancel</button>
+      <button class="btn btn-start" onclick="startCase()">Start</button>
+    </div>
+  </dialog>
+
+  <!-- Reject Dialog -->
+  <dialog id="reject-dialog">
+    <h3>Reject Case</h3>
+    <input type="hidden" id="reject-case-id">
+    <label style="font-size:13px;color:#64748b;">Reason for rejection</label>
+    <textarea id="reject-reason" placeholder="Enter rejection reason..."></textarea>
+    <div class="dialog-actions">
+      <button class="btn btn-cancel" onclick="document.getElementById('reject-dialog').close()">Cancel</button>
+      <button class="btn btn-reject" onclick="rejectCase()">Reject</button>
+    </div>
+  </dialog>
+
+  <script>
+    const API = '/cases';
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+        loadTab(tab.dataset.tab);
+      });
+    });
+
+    function badge(value, prefix) {
+      return `<span class="badge-status badge-${prefix || ''}${value}">${value}</span>`;
+    }
+    function check(val) { return val ? '<span class="check">&#10003;</span>' : '<span class="cross">&#10007;</span>'; }
+
+    async function api(path, options) {
+      const res = await fetch(API + path, options);
+      if (!res.ok) throw new Error(await res.text());
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
+    function renderInbox() {
+      const cases = Array.from(allCases.values());
+      const approval = cases.filter(e => e.status === 'AWAITING_HUMAN_APPROVAL');
+      const auditFailed = cases.filter(e => e.status === 'AUDIT_FAILED');
+      const failed = cases.filter(e => e.status === 'FAILED');
+
+      // Awaiting approval section
+      const approvalSection = document.getElementById('inbox-approval');
+      if (approval.length === 0) {
+        approvalSection.innerHTML = '<h3 style="margin-bottom:8px;">Awaiting Approval</h3><div class="empty">No cases awaiting approval.</div>';
+      } else {
+        approvalSection.innerHTML = '<h3 style="margin-bottom:8px;">Awaiting Approval</h3><table><thead><tr><th>Case Number</th><th>Procedure</th><th>Urgency</th><th>Actions</th></tr></thead><tbody>' +
+          approval.map(e => `<tr>
+            <td><strong>${e.caseNumber}</strong></td>
+            <td>${e.procedureType}</td>
+            <td>${badge(e.urgency)}</td>
+            <td class="actions">
+              <button class="btn btn-approve" onclick="approveCase('${e.caseNumber}')">Approve</button>
+              <button class="btn btn-reject" onclick="showRejectDialog('${e.caseNumber}')">Reject</button>
+            </td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+
+      // Audit failed section
+      const auditSection = document.getElementById('inbox-audit-failed');
+      if (auditFailed.length === 0) {
+        auditSection.innerHTML = '';
+      } else {
+        auditSection.innerHTML = '<h3 style="margin-bottom:8px;">Audit Failed - Requires Review</h3><table><thead><tr><th>Case Number</th><th>Procedure</th><th>Urgency</th><th>Audit Issues</th><th>Actions</th></tr></thead><tbody>' +
+          auditFailed.map(e => `<tr>
+            <td><strong>${e.caseNumber}</strong></td>
+            <td>${e.procedureType}</td>
+            <td>${badge(e.urgency)}</td>
+            <td style="color:#991b1b;font-size:13px;">${e.auditIssues || 'No details available'}</td>
+            <td class="actions">
+              <button class="btn btn-approve" onclick="continueFromAudit('${e.caseNumber}')">Continue</button>
+              <button class="btn btn-reject" onclick="failCase('${e.caseNumber}', 'Audit issues unresolvable')">Fail</button>
+            </td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+
+      // Failed section
+      const failedSection = document.getElementById('inbox-failed');
+      if (failed.length === 0) {
+        failedSection.innerHTML = '';
+      } else {
+        failedSection.innerHTML = '<h3 style="margin-bottom:8px;">Failed - Requires Intervention</h3><table><thead><tr><th>Case Number</th><th>Procedure</th><th>Urgency</th><th>Failure Reason</th><th>Actions</th></tr></thead><tbody>' +
+          failed.map(e => `<tr>
+            <td><strong>${e.caseNumber}</strong></td>
+            <td>${e.procedureType}</td>
+            <td>${badge(e.urgency)}</td>
+            <td style="color:#991b1b;font-size:13px;">${e.failureMessage || 'Unknown failure'}</td>
+            <td class="actions">
+              <button class="btn btn-start" onclick="resumeCase('${e.caseNumber}')">Resume</button>
+            </td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+    }
+
+    let queueSource = null;
+    const allCases = new Map();
+
+    function renderAllCases() {
+      const body = document.getElementById('all-cases-body');
+      if (allCases.size === 0) {
+        body.innerHTML = '<tr><td colspan="4" class="empty">No cases found.</td></tr>';
+        return;
+      }
+      body.innerHTML = Array.from(allCases.values()).map(e => `<tr>
+        <td><strong>${e.caseNumber}</strong></td>
+        <td>${badge(e.status)}</td>
+        <td>${e.procedureType}</td>
+        <td>${badge(e.urgency)}</td>
+      </tr>`).join('');
+    }
+
+    function loadAllCases() {
+      if (queueSource) queueSource.close();
+      allCases.clear();
+      const body = document.getElementById('all-cases-body');
+      body.innerHTML = '<tr><td colspan="4" class="empty">Connecting...</td></tr>';
+      queueSource = new EventSource(API + '/queue');
+      queueSource.onmessage = (e) => {
+        if (!e.data || e.data.trim() === '') return;
+        try {
+          const entry = JSON.parse(e.data);
+          allCases.set(entry.caseNumber, entry);
+          renderAllCases();
+          renderInbox();
+        } catch (err) { /* skip unparseable */ }
+      };
+      queueSource.onerror = () => {
+        if (allCases.size === 0) {
+          body.innerHTML = '<tr><td colspan="4" class="empty">Connection lost. Retrying...</td></tr>';
+        }
+      };
+    }
+
+    async function loadKPI() {
+      try {
+        const data = await api('/kpi');
+        const entries = data.entries || [];
+        const total = entries.length;
+        const docsComplete = entries.filter(e => e.documentsComplete).length;
+        const docsIncomplete = entries.filter(e => !e.documentsComplete).length;
+        const auditFail = entries.filter(e => !e.auditConsistent && e.auditIssueCount > 0).length;
+        document.getElementById('kpi-total').textContent = total;
+        document.getElementById('kpi-docs-complete').textContent = docsComplete;
+        document.getElementById('kpi-docs-incomplete').textContent = docsIncomplete;
+        document.getElementById('kpi-audit-failures').textContent = auditFail;
+        const body = document.getElementById('kpi-body');
+        if (entries.length === 0) {
+          body.innerHTML = '<tr><td colspan="5" class="empty">No data.</td></tr>';
+          return;
+        }
+        body.innerHTML = entries.map(e => `<tr>
+          <td><strong>${e.caseNumber}</strong></td>
+          <td>${badge(e.status)}</td>
+          <td>${check(e.documentsComplete)}</td>
+          <td>${check(e.auditConsistent)}</td>
+          <td>${e.auditIssueCount}</td>
+        </tr>`).join('');
+      } catch (e) { document.getElementById('kpi-body').innerHTML = `<tr><td colspan="5" class="empty">${e.message}</td></tr>`; }
+    }
+
+    async function loadAuditTrail() {
+      try {
+        const data = await api('/audit-trail');
+        const body = document.getElementById('audit-body');
+        if (!data.entries || data.entries.length === 0) {
+          body.innerHTML = '<tr><td colspan="7" class="empty">No data.</td></tr>';
+          return;
+        }
+        body.innerHTML = data.entries.map(e => `<tr>
+          <td><strong>${e.caseNumber}</strong></td>
+          <td>${badge(e.status)}</td>
+          <td>${check(e.hasScreening)}</td>
+          <td>${check(e.hasSecretariat)}</td>
+          <td>${check(e.hasAudit)}</td>
+          <td>${check(e.hasDraft)}</td>
+          <td>${e.citationCount}</td>
+        </tr>`).join('');
+      } catch (e) { document.getElementById('audit-body').innerHTML = `<tr><td colspan="7" class="empty">${e.message}</td></tr>`; }
+    }
+
+    function loadTab(tab) {
+      switch(tab) {
+        case 'inbox': break;
+        case 'kpi': loadKPI(); break;
+        case 'audit-trail': loadAuditTrail(); break;
+      }
+    }
+
+    // Actions
+    async function approveCase(caseId) {
+      try {
+        await api(`/${caseId}/approve`, { method: 'POST' });
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async function resumeCase(caseId) {
+      try {
+        await api(`/${caseId}/resume`, { method: 'POST' });
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async function continueFromAudit(caseId) {
+      try {
+        await api(`/${caseId}/continue`, { method: 'POST' });
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async function failCase(caseId, reason) {
+      try {
+        await api(`/${caseId}/fail`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason })
+        });
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function showRejectDialog(caseId) {
+      document.getElementById('reject-case-id').value = caseId;
+      document.getElementById('reject-reason').value = '';
+      document.getElementById('reject-dialog').showModal();
+    }
+
+    async function rejectCase() {
+      const caseId = document.getElementById('reject-case-id').value;
+      const reason = document.getElementById('reject-reason').value;
+      if (!reason.trim()) { alert('Please enter a reason.'); return; }
+      try {
+        await api(`/${caseId}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason })
+        });
+        document.getElementById('reject-dialog').close();
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function showStartDialog() {
+      document.getElementById('new-workflow-id').value = '';
+      document.getElementById('new-case-number').value = '';
+      document.getElementById('start-dialog').showModal();
+    }
+
+    async function startCase() {
+      const workflowId = document.getElementById('new-workflow-id').value.trim();
+      const caseNumber = document.getElementById('new-case-number').value.trim();
+      if (!workflowId || !caseNumber) { alert('Please fill in both fields.'); return; }
+      try {
+        await api(`/${workflowId}/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caseNumber })
+        });
+        document.getElementById('start-dialog').close();
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    // Initial load - stream feeds both inbox and all cases
+    loadAllCases();
+  </script>
+</body>
+</html>
